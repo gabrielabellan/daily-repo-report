@@ -1,0 +1,27 @@
+name: Send daily report
+on:
+  schedule:
+    - cron: '0 17 * * 1-5'
+  workflow_dispatch: 
+
+jobs:
+  generar-y-enviar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      
+    steps:
+      - name: Execute report
+        uses: YOUR_USER/YOUR_REPO
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repositories: 'USER/repo, USER/repo2'
+
+          #Change this variables with your mail info
+          email-to: 'examplemail@mail.com'
+          smtp-server: 'smtp.gmail.com'
+          smtp-port: '465'
+          smtp-username: 'originMail@mail.com'
+          smtp-password: ${{ secrets.EMAIL_PASSWORD }}
