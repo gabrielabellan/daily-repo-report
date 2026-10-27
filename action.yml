@@ -1,0 +1,90 @@
+name: 'Daily Repo Report'
+description: 'Generates a daily summary of repository activity and sends it via email'
+author: 'gabrielabellan'
+
+inputs:
+  github-token:
+    description: 'Github token used to read repository data'
+    required: true
+  repositories:
+    description: 'Array of repositories ("User/repo1, User/repo2")'
+    required: true
+  email-to:
+    description: 'Destination email'
+    required: true
+  smtp-password:
+    description: 'Email app password (Secured via GitHub Secrets)'
+    required: true
+  smtp-server:
+    description: 'Email server used'
+    required: true
+  smtp-port:
+    description: 'Port used for sending email'
+    required: true
+  smtp-username:
+    description: 'Email sender address'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Generate repository report'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPOS: ${{ inputs.repositories }}
+      run: |
+        YESTERDAY=$(date -d "24 hours ago" -Iseconds)
+        
+        echo "#Daily Repository Report ($(date +'%Y-%m-%d'))" > email_report.md
+        echo "Summary of activity from the last 24 hours." >> email_report.md
+        
+        IFS=',' read -r -a repo_array <<< "$REPOS"
+        for repo in "${repo_array[@]}"; do
+          repo=$(echo "$repo" | xargs)
+          
+          echo "## Repository: $repo" >> email_report.md
+          echo "---" >> email_report.md
+          
+          echo "### Commits" >> email_report.md
+          COMMITS=$(gh api repos/$repo/commits?since=$YESTERDAY --jq '.[] | "- \(.commit.message | split("\n")[0]) by **\(.commit.author.name)**"' 2>/dev/null)
+          if [ -z "$COMMITS" ]; then
+            echo "*No new commits in the last 24 hours.*" >> email_report.md
+          else
+            echo "$COMMITS" >> email_report.md
+          fi
+          
+          echo "### Issues" >> email_report.md
+          ISSUES=$(gh issue list -R $repo --state all --json title,url,createdAt --jq '.[] | select(.createdAt >= "'$YESTERDAY'") | "- [\(.title)](\(.url))"' 2>/dev/null)
+          if [ -z "$ISSUES" ]; then
+            echo "*No issue activity.*" >> email_report.md
+          else
+            echo "$ISSUES" >> email_report.md
+          fi
+          
+          echo "### Pull Requests" >> email_report.md
+          PRS=$(gh pr list -R $repo --state all --json title,url,createdAt --jq '.[] | select(.createdAt >= "'$YESTERDAY'") | "- [\(.title)](\(.url))"' 2>/dev/null)
+          if [ -z "$PRS" ]; then
+            echo "*No Pull Request activity.*" >> email_report.md
+          else
+            echo "$PRS" >> email_report.md
+          fi
+          
+          echo "<br><br>" >> email_report.md
+        done
+        
+        cat email_report.md >> $GITHUB_STEP_SUMMARY
+
+    - name: 'Send email notification'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: ${{ inputs.smtp-port }}
+        secure: true
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        subject:  GitHub Daily Report'
+        to: ${{ inputs.email-to }}
+        from: "GitHub Actions Bot"
+        html_body: file://email_report.md
+        convert_markdown: true
